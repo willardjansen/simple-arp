@@ -1,0 +1,16 @@
+# Build output
+build/
+*.vst3
+
+# JUCE is cloned in, not vendored
+JUCE/
+
+# Visual Studio / MSVC
+.vs/
+*.user
+*.suo
+*.vcxproj.filters
+
+# OS
+Thumbs.db
+desktop.ini
