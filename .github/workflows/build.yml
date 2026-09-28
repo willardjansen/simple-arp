@@ -50,15 +50,20 @@ jobs:
       - name: Package
         shell: bash
         run: |
-          mkdir -p dist
+          mkdir -p dist stage
           vst3=$(find build -maxdepth 4 -name '*.vst3' | head -1)
           echo "packaging $vst3"
+
           if [ "$RUNNER_OS" = "macOS" ]; then
-            # ditto preserves the bundle's symlinks; zip does not, and an unzipped
-            # bundle with broken symlinks fails to load with no useful error.
-            ditto -c -k --sequesterRsrc --keepParent "$vst3" "dist/Simple Arp-macOS.zip"
+            # ditto preserves the bundle's symlinks and its ad-hoc signature; zip drops
+            # both, and the result fails to load with no useful error.
+            ditto "$vst3" "stage/$(basename "$vst3")"
+            cp INSTALL.md stage/
+            ditto -c -k --sequesterRsrc "stage" "dist/Simple Arp-macOS.zip"
           else
-            powershell -Command "Compress-Archive -Path '$vst3' -DestinationPath 'dist/Simple Arp-Windows.zip'"
+            cp -r "$vst3" stage/
+            cp INSTALL.md stage/
+            powershell -Command "Compress-Archive -Path 'stage/*' -DestinationPath 'dist/Simple Arp-Windows.zip'"
           fi
 
       - uses: actions/upload-artifact@v4
@@ -66,3 +71,23 @@ jobs:
           name: Simple Arp-${{ matrix.name }}
           path: dist/*.zip
           if-no-files-found: error
+
+  # Tagging v1.0.0 and pushing the tag is the whole release process.
+  release:
+    name: Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*.zip
+          generate_release_notes: true
