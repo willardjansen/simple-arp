@@ -64,6 +64,11 @@ you'll find it under instruments, and it needs a second track to play into:
 2. A second track with your instrument, its MIDI input set to the Simple Arp track, input
    monitoring on.
 
+In Ableton Live, that second dropdown under **MIDI From** is the one people miss — it has
+to be set to **Simple Arp**, not to the track's own output:
+
+![Routing Simple Arp into Serum in Ableton Live 12](https://raw.githubusercontent.com/willardjansen/simple-arp/master/docs/images/ableton-routing.png)
+
 `INSTALL.md` in the download has the per-DAW steps for Cubase, Live, Logic, Reaper, Bitwig
 and Studio One.
 

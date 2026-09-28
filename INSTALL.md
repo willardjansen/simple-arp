@@ -51,8 +51,16 @@ take. Save it as a Track Preset and it's a two-click recall.
 ### Ableton Live (tested in Live 12)
 
 1. MIDI track with **Simple Arp** on it.
-2. Second MIDI track with your instrument; set its **MIDI From** to the Simple Arp
-   track, and pick **Simple Arp** in the second dropdown. Monitor: **In**.
+2. Second MIDI track with your instrument. Set its **MIDI From** to the Simple Arp
+   track, and in the dropdown underneath pick **Simple Arp** — that second dropdown is
+   the plugin's MIDI output, and picking it is the step everyone misses.
+3. Arm that second track, with **Monitor** on `In` or `Auto`.
+
+![Routing Simple Arp into Serum in Ableton Live 12](https://raw.githubusercontent.com/willardjansen/simple-arp/master/docs/images/ableton-routing.png)
+
+In the shot above, the Serum track takes **MIDI From → 2-Simple Arp**, then **Simple Arp**
+in the dropdown below it, and is armed. Play or record chords into the Simple Arp track and
+Serum gets the arpeggiated notes.
 
 ### Logic, Reaper, Bitwig, Studio One (untested)
 
