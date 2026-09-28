@@ -90,4 +90,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: artifacts/**/*.zip
+          # Hand-written notes for whoever downloads this, with the commit log appended
+          # underneath for anyone who wants the detail.
+          body_path: RELEASE_NOTES.md
           generate_release_notes: true
