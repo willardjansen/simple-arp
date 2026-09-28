@@ -1,11 +1,34 @@
 cmake_minimum_required(VERSION 3.22)
 
+# Both of these have to be set before project(), or the first compiler check bakes in
+# the host architecture and the universal build silently becomes single-architecture.
+if(APPLE)
+    set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "Build a universal binary")
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
+endif()
+
 project(SimpleArp VERSION 1.0.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_subdirectory(JUCE)
+# JUCE is cloned in beside the project rather than vendored, so a clean checkout -- CI,
+# or anyone building this for the first time -- has to fetch it. Pinned, because a
+# floating JUCE version is a build that breaks on someone else's machine and not yours.
+set(SIMPLEARP_JUCE_TAG "9.0.1" CACHE STRING "JUCE version to fetch when none is present")
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/JUCE/CMakeLists.txt")
+    message(STATUS "Using the JUCE checkout in ${CMAKE_CURRENT_SOURCE_DIR}/JUCE")
+    add_subdirectory(JUCE)
+else()
+    message(STATUS "No local JUCE; fetching ${SIMPLEARP_JUCE_TAG}")
+    include(FetchContent)
+    FetchContent_Declare(JUCE
+        GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
+        GIT_TAG        ${SIMPLEARP_JUCE_TAG}
+        GIT_SHALLOW    TRUE)
+    FetchContent_MakeAvailable(JUCE)
+endif()
 
 juce_add_plugin(SimpleArp
     COMPANY_NAME            "Willard Jansen"

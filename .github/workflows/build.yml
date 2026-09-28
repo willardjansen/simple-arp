@@ -1,0 +1,68 @@
+name: Build
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+          - name: macOS
+            os: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # JUCE is not vendored, so CMake fetches the pinned tag. Caching it keeps a build
+      # to a couple of minutes rather than re-cloning the framework every time.
+      - name: Cache JUCE
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: juce-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+
+      # The harness catches stuck notes and timing drift without a DAW. A build that
+      # fails this should never reach a release.
+      - name: Test
+        shell: bash
+        run: |
+          harness=$(find build -type f \( -name ArpTest -o -name ArpTest.exe \) | head -1)
+          echo "running $harness"
+          "$harness"
+
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p dist
+          vst3=$(find build -maxdepth 4 -name '*.vst3' | head -1)
+          echo "packaging $vst3"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            # ditto preserves the bundle's symlinks; zip does not, and an unzipped
+            # bundle with broken symlinks fails to load with no useful error.
+            ditto -c -k --sequesterRsrc --keepParent "$vst3" "dist/Simple Arp-macOS.zip"
+          else
+            powershell -Command "Compress-Archive -Path '$vst3' -DestinationPath 'dist/Simple Arp-Windows.zip'"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Simple Arp-${{ matrix.name }}
+          path: dist/*.zip
+          if-no-files-found: error
