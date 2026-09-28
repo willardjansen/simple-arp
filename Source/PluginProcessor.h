@@ -199,6 +199,7 @@ private:
     long long pendingStepNumber = -1;
     int pendingStepAge = 0;
     int retriggerGraceSamples = 0;
+    int simultaneousGraceSamples = 0;
     double currentGateSamples = 0.0;
     int lastChannel = 1;
     double nextFreeRunStep = 0.0;

@@ -41,6 +41,12 @@ The **Sequence** field is the grid as text. Set `Rows` to `Chord tones` and the 
 degrees of whatever you're holding, counting up from the lowest note — so on a triad
 `1-2-3` is root, third, fifth, and `4` is the root an octave up.
 
+> **`Rows` has to be `Chord tones` for this.** It still defaults to `Chromatic`, where a
+> row is a semitone above the root and the notes above the bass are never read at all — so
+> a progression that moves its upper voices over a held bass comes out identical bar after
+> bar. That reads exactly like the arp ignoring your chord changes, and it is the first
+> thing to check if it does.
+
 ```
 3-1-2|3-1-2|3-2-3|1-2-3|1-3-2-1
 ```
@@ -209,7 +215,26 @@ inject a chord once and hold it forever never see this; the harness has to relea
 re-press at the cycle boundary. A step that finds no chord is now held for up to 15ms and
 fires as soon as the notes arrive.
 
-**Host ppq is not exact, and the tolerance must reflect that.** Step positions came from
+**A step and the chord change it should play arrive at the same moment, and the step was
+winning.** The block loop merges incoming MIDI with generated steps in sample order and
+already gave ties to the message. But the step's position is a `double` derived from the
+host ppq, so a step whose true home is sample 160 computes as 159.99999 — and truncating
+that to an `int` put it *before* a note-on on sample 160. A chord change written on the
+beat is exactly that case, so the first note of every new chord was the old chord's. It
+reads as "the arp only follows chord changes at bar lines", especially under a pattern a
+bar long. Two parts to the fix: round the step position instead of truncating it, and
+treat a message landing within half a millisecond *after* a step as simultaneous with it,
+since hosts deliver the release and re-press a sample or two late. Rounding also means a
+step can land a sample either side of its ideal position, so a test asserting an exact
+gap between steps needs a couple of samples of slack.
+
+**`INT_MAX` is used as "no next step", so do not do arithmetic on it.** Adding the
+simultaneity grace to the step position overflowed the sentinel, the comparison went the
+wrong way, and the merge loop stopped terminating — the test run hung rather than failed.
+Check for the sentinel before adding anything to it.
+
+**Host ppq is not exact, and the tolerance must reflect that.**
+ Step positions came from
 `ceil (ppqStart / stepQuarters - 1.0e-9)`. That epsilon is in units of *steps* — around half
 a nanosecond. A host derives `ppqPosition` as a float from time, so it lands slightly either
 side of a boundary; whenever it overshot by more than the epsilon, `ceil` jumped to the next

@@ -807,6 +807,13 @@ void SimpleArpAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     currentGateSamples = gateSamples;
     retriggerGraceSamples = (int) (sampleRate * 0.015);
 
+    // A chord change written on the beat does not always arrive exactly on the sample
+    // its step fires on -- hosts deliver the release and re-press a sample or two late.
+    // Messages that close are treated as simultaneous with the step, so the step plays
+    // the chord that is arriving rather than the one being replaced. Half a millisecond
+    // is far below anything audible and far above the skew a host introduces.
+    simultaneousGraceSamples = juce::jlimit (1, 64, (int) (sampleRate * 0.0005));
+
     juce::MidiBuffer output;
 
     // Anything orphaned by a reset gets released before this block plays anything.
@@ -890,8 +897,14 @@ void SimpleArpAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     {
         const double stepAt = nextStepSample();
 
-        const int stepSample = stepAt < (double) numSamples ? juce::jmax (0, (int) stepAt)
-                                                            : std::numeric_limits<int>::max();
+        // Round rather than truncate. stepAt is a float derived from the host ppq, so a
+        // step whose true position is sample 160 computes as 159.99999 -- and truncating
+        // that puts it *before* an incoming message on sample 160, which is exactly where
+        // a chord change written on the beat arrives. The step would then sound the chord
+        // that is being replaced.
+        const int stepSample = stepAt < (double) numSamples
+                                 ? juce::jlimit (0, numSamples - 1, juce::roundToInt (stepAt))
+                                 : std::numeric_limits<int>::max();
         const int midiSample = midiIt != midiEnd
                                  ? juce::jlimit (0, numSamples - 1, (*midiIt).samplePosition)
                                  : std::numeric_limits<int>::max();
@@ -899,7 +912,13 @@ void SimpleArpAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
         if (stepSample == std::numeric_limits<int>::max() && midiSample == std::numeric_limits<int>::max())
             break;
 
-        if (midiSample <= stepSample)
+        // Ties, and near-ties, go to the message: see simultaneousGraceSamples above.
+        // Guard the sentinel: INT_MAX + grace overflows, and the loop never terminates.
+        const int stepCutoff = stepSample == std::numeric_limits<int>::max()
+                                 ? stepSample
+                                 : stepSample + simultaneousGraceSamples;
+
+        if (midiSample <= stepCutoff)
         {
             const auto metadata = *midiIt;
             ++midiIt;

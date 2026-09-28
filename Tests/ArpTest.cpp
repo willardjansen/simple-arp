@@ -835,8 +835,11 @@ void testNoSkippedSteps()
             const double totalQuarters = (double) numBlocks * blocks / testSampleRate * bpm / 60.0;
             const int expected = (int) std::floor (totalQuarters / 0.25) + 1;
 
+            // Step positions are rounded to the nearest sample, so a gap can be a sample
+            // either side of the ideal. A skipped step is a gap of roughly two steps, so
+            // a couple of samples of slack still catches what this is here to catch.
             const bool ok = std::abs ((int) ons.size() - expected) <= 1
-                         && (double) worst <= samplesPerStep + 1.0;
+                         && (double) worst <= samplesPerStep + 2.0;
 
             check (ok, juce::String (bpm, 1) + "bpm / " + juce::String (blocks)
                            + "-sample blocks: " + juce::String ((int) ons.size())
@@ -1611,6 +1614,158 @@ void testSequenceSurvivesAPreset()
     check (proc.getStepVelocity (3) == 77, "velocities still come back too");
 }
 
+/** Holds `first`, then swaps to `second` at an exact sample position, and returns every
+    note-on the arp produced. The two chords deliberately share their lowest note.
+*/
+std::vector<int> runWithChordChange (SimpleArpAudioProcessor& proc, TestPlayHead& playHead,
+                                     const std::vector<int>& first,
+                                     const std::vector<int>& second,
+                                     long long swapAtSample, int numBlocks)
+{
+    std::vector<int> notes;
+    juce::AudioBuffer<float> buffer (2, blockSize);
+
+    const double ppqPerBlock = (double) blockSize / testSampleRate * playHead.bpm / 60.0;
+
+    for (int block = 0; block < numBlocks; ++block)
+    {
+        juce::MidiBuffer midi;
+        const long long blockStart = (long long) block * blockSize;
+
+        if (block == 0)
+            for (int note : first)
+                midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), 0);
+
+        if (swapAtSample >= blockStart && swapAtSample < blockStart + blockSize)
+        {
+            const int offset = (int) (swapAtSample - blockStart);
+
+            // Lift only what changes, exactly as a player moving the upper voices would.
+            for (int note : first)
+                if (std::find (second.begin(), second.end(), note) == second.end())
+                    midi.addEvent (juce::MidiMessage::noteOff (1, note), offset);
+
+            for (int note : second)
+                if (std::find (first.begin(), first.end(), note) == first.end())
+                    midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), offset);
+        }
+
+        buffer.clear();
+        proc.processBlock (buffer, midi);
+
+        for (const auto metadata : midi)
+        {
+            const auto message = metadata.getMessage();
+
+            if (message.isNoteOn())
+                notes.push_back (message.getNoteNumber());
+        }
+
+        playHead.ppq += ppqPerBlock;
+    }
+
+    return notes;
+}
+
+void testChordChangeMidBar()
+{
+    std::cout << "Chord changes under a sequence" << std::endl;
+
+    // C major to F/C: the upper voices move but the lowest note is still C, which is
+    // the case that separates "follows the chord" from "follows the root".
+    const std::vector<int> cMajor { 60, 64, 67 };
+    const std::vector<int> fOverC { 60, 65, 69 };
+
+    // 1/16 at 120bpm is 6000 samples at 48k, so step 6 begins at sample 36000.
+    constexpr long long stepSixSample = 36000;
+
+    auto prepare = [] (SimpleArpAudioProcessor& proc, TestPlayHead& playHead, int rowMode)
+    {
+        proc.setRateAndBufferSizeDetails (testSampleRate, blockSize);
+        proc.prepareToPlay (testSampleRate, blockSize);
+        proc.setPlayHead (&playHead);
+
+        setParam (proc.apvts, "rate", 6);            // 1/16
+        setParam (proc.apvts, "gate", 50.0f);
+        setParam (proc.apvts, "latch", 0.0f);
+        setParam (proc.apvts, "key", 0);             // From chord
+        setParam (proc.apvts, "octaves", 1);
+        setParam (proc.apvts, "rows", (float) rowMode);
+
+        proc.applySequence ("3-1-2");
+    };
+
+    {
+        SimpleArpAudioProcessor proc;
+        TestPlayHead playHead;
+        prepare (proc, playHead, SimpleArpAudioProcessor::rowsChordTones);
+
+        const auto notes = runWithChordChange (proc, playHead, cMajor, fOverC,
+                                               stepSixSample - 1000, 160);
+
+        const std::vector<int> before (notes.begin(), notes.begin() + 6);
+        const std::vector<int> after (notes.begin() + 6, notes.begin() + 12);
+
+        check (notesMatch (before, { 67, 60, 64, 67, 60, 64 }),
+               "Chord tones: C major arps G, C, E -> " + describe (before));
+        check (notesMatch (after, { 69, 60, 65, 69, 60, 65 }),
+               "Chord tones: a swap between steps is followed by the next step -> "
+                   + describe (after));
+    }
+
+    {
+        // The case that actually happens: the chord changes on the beat, so the new
+        // notes land on the very sample the step fires on.
+        SimpleArpAudioProcessor proc;
+        TestPlayHead playHead;
+        prepare (proc, playHead, SimpleArpAudioProcessor::rowsChordTones);
+
+        const auto notes = runWithChordChange (proc, playHead, cMajor, fOverC,
+                                               stepSixSample, 160);
+
+        const std::vector<int> after (notes.begin() + 6, notes.begin() + 12);
+
+        check (notesMatch (after, { 69, 60, 65, 69, 60, 65 }),
+               "Chord tones: a swap landing exactly on a step is heard on that step -> "
+                   + describe (after));
+    }
+
+    {
+        // And the way a host actually delivers it: the re-press can land a sample or
+        // two after the downbeat, the same skew the cycle-start grace exists for.
+        SimpleArpAudioProcessor proc;
+        TestPlayHead playHead;
+        prepare (proc, playHead, SimpleArpAudioProcessor::rowsChordTones);
+
+        const auto notes = runWithChordChange (proc, playHead, cMajor, fOverC,
+                                               stepSixSample + 2, 160);
+
+        const std::vector<int> after (notes.begin() + 6, notes.begin() + 12);
+
+        check (notesMatch (after, { 69, 60, 65, 69, 60, 65 }),
+               "Chord tones: a swap arriving a sample or two late is still heard on that step -> "
+                   + describe (after));
+    }
+
+    {
+        SimpleArpAudioProcessor proc;
+        TestPlayHead playHead;
+        prepare (proc, playHead, SimpleArpAudioProcessor::rowsChromatic);
+
+        const auto notes = runWithChordChange (proc, playHead, cMajor, fOverC,
+                                               stepSixSample - 1000, 160);
+
+        const std::vector<int> before (notes.begin(), notes.begin() + 6);
+        const std::vector<int> after (notes.begin() + 6, notes.begin() + 12);
+
+        // Not a bug, but the thing that reads as one: a scale row mode only ever looks
+        // at the root, so voices moving above a held bass change nothing at all.
+        check (notesMatch (before, after),
+               "Chromatic: the same swap changes nothing, because only the root is read -> "
+                   + describe (before) + " then " + describe (after));
+    }
+}
+
 } // namespace
 
 //==============================================================================
@@ -1637,6 +1792,7 @@ int main()
     testSequenceRoundTrip();
     testSequencePlaysBack();
     testSequenceSurvivesAPreset();
+    testChordChangeMidBar();
 
     std::cout << std::endl
               << (failures == 0 ? "ALL TESTS PASSED"

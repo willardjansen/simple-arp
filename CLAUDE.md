@@ -38,6 +38,10 @@ to be closed rather than retrying.
   must leave the field correct on the next timer tick — don't add a second writer.
 - `applySequence` writes rows only. `clearPattern` also resets velocities, which is right
   for the Clear button and wrong for retyping a sequence.
+- In the block merge loop, a step position is a rounded `double` and `INT_MAX` means "no
+  next step". Ties and near-ties go to the incoming message so a step plays the chord that
+  is arriving, not the one being replaced. Do not add to the sentinel — it overflows and
+  the loop stops terminating.
 - Tests set every parameter they depend on explicitly. Do not lean on defaults.
 
 ## Things to be careful about
