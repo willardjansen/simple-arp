@@ -10,6 +10,7 @@
 #include <iostream>
 #include <algorithm>
 #include <map>
+#include <utility>
 #include <vector>
 
 //==============================================================================
@@ -1766,6 +1767,209 @@ void testChordChangeMidBar()
     }
 }
 
+void testDegreesIndexTheLowestNotes()
+{
+    std::cout << "Which held notes a degree reaches" << std::endl;
+
+    // A sustained voicing: three notes holding underneath while the top voice moves,
+    // which is what a recorded pad progression usually looks like.
+    const std::vector<int> firstVoicing  { 48, 60, 67, 76 };
+    const std::vector<int> secondVoicing { 48, 60, 67, 74 };   // only the top note moves
+
+    constexpr long long swapSample = 36000 - 1000;
+
+    auto prepare = [] (SimpleArpAudioProcessor& proc, TestPlayHead& playHead,
+                       const juce::String& sequence)
+    {
+        proc.setRateAndBufferSizeDetails (testSampleRate, blockSize);
+        proc.prepareToPlay (testSampleRate, blockSize);
+        proc.setPlayHead (&playHead);
+
+        setParam (proc.apvts, "rate", 6);            // 1/16
+        setParam (proc.apvts, "gate", 50.0f);
+        setParam (proc.apvts, "latch", 0.0f);
+        setParam (proc.apvts, "key", 0);
+        setParam (proc.apvts, "rows", SimpleArpAudioProcessor::rowsChordTones);
+        setParam (proc.apvts, "octaves", 1);
+
+        proc.applySequence (sequence);
+    };
+
+    {
+        SimpleArpAudioProcessor proc;
+        TestPlayHead playHead;
+        prepare (proc, playHead, "3-1-2");
+
+        const auto notes = runWithChordChange (proc, playHead, firstVoicing, secondVoicing,
+                                               swapSample, 160);
+
+        const std::vector<int> before (notes.begin(), notes.begin() + 6);
+        const std::vector<int> after (notes.begin() + 6, notes.begin() + 12);
+
+        // Degrees count up from the bottom, so 1-2-3 is the three notes that are holding.
+        // The voice that moved is degree 4 and the sequence never asks for it.
+        check (notesMatch (before, after),
+               "a sequence reaching only degrees 1-3 cannot hear the top voice move -> "
+                   + describe (before) + " then " + describe (after));
+    }
+
+    {
+        SimpleArpAudioProcessor proc;
+        TestPlayHead playHead;
+        prepare (proc, playHead, "4-1-2");
+
+        const auto notes = runWithChordChange (proc, playHead, firstVoicing, secondVoicing,
+                                               swapSample, 160);
+
+        const std::vector<int> before (notes.begin(), notes.begin() + 6);
+        const std::vector<int> after (notes.begin() + 6, notes.begin() + 12);
+
+        check (notesMatch (before, { 76, 48, 60, 76, 48, 60 }),
+               "degree 4 is the fourth note up, the one that moves -> " + describe (before));
+        check (notesMatch (after, { 74, 48, 60, 74, 48, 60 }),
+               "and the same sequence follows that voice -> " + describe (after));
+    }
+
+    {
+        // Where the bass moves too, any sequence follows it.
+        SimpleArpAudioProcessor proc;
+        TestPlayHead playHead;
+        prepare (proc, playHead, "3-1-2");
+
+        const auto notes = runWithChordChange (proc, playHead, { 60, 64, 67 }, { 65, 69, 72 },
+                                               swapSample, 160);
+
+        const std::vector<int> after (notes.begin() + 6, notes.begin() + 12);
+
+        check (notesMatch (after, { 72, 65, 69, 72, 65, 69 }),
+               "a block chord change moves every degree -> " + describe (after));
+    }
+}
+
+/** Drives the arp through a series of voicings, each replacing the last at a given
+    sample, and returns every note-on produced.
+*/
+std::vector<int> runVoicings (SimpleArpAudioProcessor& proc, TestPlayHead& playHead,
+                              const std::vector<std::pair<long long, std::vector<int>>>& voicings,
+                              int numBlocks)
+{
+    std::vector<int> notes;
+    juce::AudioBuffer<float> buffer (2, blockSize);
+
+    const double ppqPerBlock = (double) blockSize / testSampleRate * playHead.bpm / 60.0;
+    std::vector<int> sounding;
+
+    for (int block = 0; block < numBlocks; ++block)
+    {
+        juce::MidiBuffer midi;
+        const long long blockStart = (long long) block * blockSize;
+
+        for (const auto& voicing : voicings)
+        {
+            if (voicing.first < blockStart || voicing.first >= blockStart + blockSize)
+                continue;
+
+            const int offset = (int) (voicing.first - blockStart);
+
+            // Only what actually changes moves, so notes common to both voicings keep
+            // sustaining -- which is the whole point of the case being modelled.
+            for (int note : sounding)
+                if (std::find (voicing.second.begin(), voicing.second.end(), note) == voicing.second.end())
+                    midi.addEvent (juce::MidiMessage::noteOff (1, note), offset);
+
+            for (int note : voicing.second)
+                if (std::find (sounding.begin(), sounding.end(), note) == sounding.end())
+                    midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 100), offset);
+
+            sounding = voicing.second;
+        }
+
+        buffer.clear();
+        proc.processBlock (buffer, midi);
+
+        for (const auto metadata : midi)
+            if (metadata.getMessage().isNoteOn())
+                notes.push_back (metadata.getMessage().getNoteNumber());
+
+        playHead.ppq += ppqPerBlock;
+    }
+
+    return notes;
+}
+
+void testSustainedPadProgression()
+{
+    std::cout << "A pad whose bass moves on the bar line" << std::endl;
+
+    // The shape of a written piano/pad part: the low notes hold for two bars at a time
+    // and change on the bar line, while an upper voice moves inside the bar.
+    // 1/16 at 120bpm is 6000 samples, so a bar is 96000.
+    constexpr long long bar = 96000;
+
+    const std::vector<std::pair<long long, std::vector<int>>> voicings
+    {
+        { 0,                 { 48, 55, 72 } },   // bar 1: bass C/G, top C
+        { bar + bar / 2,     { 48, 55, 74 } },   // bar 2 beat 3: only the top voice moves
+        { bar * 2,           { 50, 57, 74 } },   // bar 3: the bass moves, on the bar line
+    };
+
+    auto prepare = [] (SimpleArpAudioProcessor& proc, TestPlayHead& playHead, int rowMode)
+    {
+        proc.setRateAndBufferSizeDetails (testSampleRate, blockSize);
+        proc.prepareToPlay (testSampleRate, blockSize);
+        proc.setPlayHead (&playHead);
+
+        setParam (proc.apvts, "rate", 6);            // 1/16
+        setParam (proc.apvts, "gate", 50.0f);
+        setParam (proc.apvts, "latch", 0.0f);
+        setParam (proc.apvts, "key", 0);             // From chord
+        setParam (proc.apvts, "octaves", 1);
+        setParam (proc.apvts, "rows", (float) rowMode);
+
+        proc.applySequence ("3-1-2");
+    };
+
+    // Three 16ths starting a little after each landmark, so each slice is one full
+    // turn of the figure inside that voicing.
+    auto sliceAt = [] (const std::vector<int>& notes, int step)
+    {
+        return std::vector<int> (notes.begin() + step, notes.begin() + step + 3);
+    };
+
+    {
+        SimpleArpAudioProcessor proc;
+        TestPlayHead playHead;
+        prepare (proc, playHead, SimpleArpAudioProcessor::rowsChordTones);
+
+        const auto notes = runVoicings (proc, playHead, voicings, 900);
+
+        check (notesMatch (sliceAt (notes, 3), { 72, 48, 55 }),
+               "Chord tones, bar 1 -> " + describe (sliceAt (notes, 3)));
+        check (notesMatch (sliceAt (notes, 27), { 74, 48, 55 }),
+               "Chord tones follows the mid-bar voice move -> " + describe (sliceAt (notes, 27)));
+        check (notesMatch (sliceAt (notes, 51), { 74, 50, 57 }),
+               "Chord tones follows the bar-line bass move -> " + describe (sliceAt (notes, 51)));
+    }
+
+    {
+        SimpleArpAudioProcessor proc;
+        TestPlayHead playHead;
+        prepare (proc, playHead, SimpleArpAudioProcessor::rowsChromatic);
+
+        const auto notes = runVoicings (proc, playHead, voicings, 900);
+
+        // The reported symptom, reproduced: a scale row mode builds its ladder from the
+        // lowest note alone, so the mid-bar move is inaudible and the output only ever
+        // changes where the bass does -- which in a part like this is the bar line.
+        check (notesMatch (sliceAt (notes, 3), sliceAt (notes, 27)),
+               "Chromatic ignores the mid-bar voice move -> " + describe (sliceAt (notes, 3))
+                   + " then " + describe (sliceAt (notes, 27)));
+        check (! notesMatch (sliceAt (notes, 27), sliceAt (notes, 51)),
+               "Chromatic changes only where the bass does, on the bar line -> "
+                   + describe (sliceAt (notes, 27)) + " then " + describe (sliceAt (notes, 51)));
+    }
+}
+
 } // namespace
 
 //==============================================================================
@@ -1793,6 +1997,8 @@ int main()
     testSequencePlaysBack();
     testSequenceSurvivesAPreset();
     testChordChangeMidBar();
+    testDegreesIndexTheLowestNotes();
+    testSustainedPadProgression();
 
     std::cout << std::endl
               << (failures == 0 ? "ALL TESTS PASSED"
