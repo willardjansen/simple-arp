@@ -108,5 +108,11 @@ example above is sixteen steps precisely so it *does* land on the bar.
 
 ## Licence
 
-Built with [JUCE](https://juce.com). See `README.md` in the source repository for the
-licence this is distributed under.
+Simple Arp is free software under the **GNU Affero General Public License v3.0**. You are
+free to use it, change it and pass it on; if you distribute a modified version you have to
+share your source under the same licence.
+
+Source: <https://github.com/willardjansen/simple-arp>
+
+Built with [JUCE](https://juce.com). VST is a trademark of Steinberg Media Technologies
+GmbH.

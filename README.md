@@ -270,5 +270,23 @@ the clean way out: stale states are ignored and the new parameter takes its defa
 
 ## Licence
 
-JUCE 9 under its Personal tier, with `JUCE_DISPLAY_SPLASH_SCREEN=0`. Fine for personal use;
-re-read the terms before shipping anything commercially.
+Simple Arp is free software under the **GNU Affero General Public License v3.0**. The full
+text is in [`LICENSE`](LICENSE).
+
+Use it, study it, change it, pass it on. If you distribute a modified version — or run one
+as a network service — you have to make your source available under the same licence.
+Commercial use is allowed; keeping your changes closed is not.
+
+This is what the dependencies require rather than a free choice:
+
+- **JUCE 9** is dual-licensed AGPLv3 or commercial. This project takes the AGPLv3 route,
+  which is also why `JUCE_DISPLAY_SPLASH_SCREEN=0` is fine here — the splash requirement
+  belongs to the commercial terms, not to the AGPL.
+- **Steinberg's VST3 SDK**, vendored inside JUCE, is GPLv3 or Steinberg's proprietary
+  licence. GPLv3 is compatible with AGPLv3 for this, so the AGPL route covers it without
+  separate registration.
+
+Note that AGPLv3 forbids adding further restrictions, so a "non-commercial" clause cannot
+be layered on top. That would need a commercial JUCE licence first.
+
+VST is a trademark of Steinberg Media Technologies GmbH.
