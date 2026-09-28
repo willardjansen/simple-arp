@@ -134,6 +134,191 @@ void SimpleArpAudioProcessor::clearPattern() noexcept
         velocity.store (defaultVelocity);
 }
 
+void SimpleArpAudioProcessor::clearPatternRows() noexcept
+{
+    // Rows only: typing a sequence rewrites which notes play, not how hard they play.
+    for (auto& row : patternRows)
+        row.store (0);
+}
+
+//==============================================================================
+SimpleArpAudioProcessor::SequenceParse
+SimpleArpAudioProcessor::parseSequence (const juce::String& text)
+{
+    SequenceParse result;
+
+    // '|' is cosmetic grouping, so split on it first and keep the sizes for the
+    // round trip back out. Everything else separates one step from the next.
+    juce::StringArray groupTexts;
+    groupTexts.addTokens (text, "|", "");
+
+    for (const auto& groupText : groupTexts)
+    {
+        juce::StringArray stepTokens;
+        stepTokens.addTokens (groupText, "-,;/ \t\r\n", "");
+        stepTokens.removeEmptyStrings();
+
+        for (const auto& token : stepTokens)
+        {
+            if ((int) result.steps.size() >= maxPatternSteps)
+            {
+                result.error = "more than " + juce::String (maxPatternSteps) + " steps";
+                return result;
+            }
+
+            // A whole token of '.', '_' or '0' is a rest: a step that plays nothing.
+            if (token == "." || token == "_" || token == "0")
+            {
+                result.steps.emplace_back();
+                continue;
+            }
+
+            juce::StringArray degreeTexts;
+            degreeTexts.addTokens (token, "+", "");
+            degreeTexts.removeEmptyStrings();
+
+            std::vector<int> rows;
+
+            for (const auto& degreeText : degreeTexts)
+            {
+                if (! degreeText.containsOnly ("0123456789"))
+                {
+                    result.error = "\"" + degreeText + "\" is not a degree";
+                    return result;
+                }
+
+                const int degree = degreeText.getIntValue();
+
+                if (degree < 1 || degree > numPatternRows)
+                {
+                    result.error = "degree " + juce::String (degree) + " is outside 1-"
+                                     + juce::String (numPatternRows);
+                    return result;
+                }
+
+                if (std::find (rows.begin(), rows.end(), degree - 1) == rows.end())
+                    rows.push_back (degree - 1);
+
+                result.highestDegree = juce::jmax (result.highestDegree, degree);
+            }
+
+            if (rows.empty())
+            {
+                result.error = "\"" + token + "\" is not a degree";
+                return result;
+            }
+
+            std::sort (rows.begin(), rows.end());
+            result.steps.push_back (std::move (rows));
+        }
+
+        const int stepsSoFar = (int) result.steps.size();
+        int used = 0;
+
+        for (int size : result.groups)
+            used += size;
+
+        if (stepsSoFar > used)
+            result.groups.push_back (stepsSoFar - used);
+    }
+
+    if (result.steps.empty())
+    {
+        result.error = "nothing to play";
+        return result;
+    }
+
+    result.numSteps = (int) result.steps.size();
+    result.ok = true;
+
+    return result;
+}
+
+SimpleArpAudioProcessor::SequenceParse
+SimpleArpAudioProcessor::applySequence (const juce::String& text)
+{
+    auto parsed = parseSequence (text);
+
+    if (! parsed.ok)
+        return parsed;
+
+    clearPatternRows();
+
+    for (int step = 0; step < parsed.numSteps; ++step)
+        for (int row : parsed.steps[(size_t) step])
+            setPatternCell (row, step, true);
+
+    if (auto* steps = apvts.getParameter ("steps"))
+        steps->setValueNotifyingHost (steps->convertTo0to1 ((float) parsed.numSteps));
+
+    // In Chord tones, Octaves caps how far up the grid reaches, so a sequence that
+    // asks for degree 4 on a triad would be silently half-muted. Raise it to match.
+    // Scale modes always reach all 12 rows, and there Octaves transposes instead --
+    // touching it would move the pattern, so it is left alone.
+    if ((int) rowModeParam->load() == rowsChordTones && parsed.highestDegree > 0)
+    {
+        const int chordSize = displayChordSize.load();
+
+        // Nothing held yet, so size the reach for the common case rather than guess
+        // high; the dimmed grid rows show it if a smaller chord falls short.
+        const int assumed = chordSize > 0 ? chordSize : 3;
+        const int needed = juce::jlimit (1, 4, (parsed.highestDegree + assumed - 1) / assumed);
+
+        if (auto* octaves = apvts.getParameter ("octaves"))
+        {
+            if (needed > (int) octavesParam->load())
+            {
+                octaves->setValueNotifyingHost (octaves->convertTo0to1 ((float) needed));
+                parsed.octavesRaisedTo = needed;
+            }
+        }
+    }
+
+    return parsed;
+}
+
+juce::String SimpleArpAudioProcessor::sequenceToString (const std::vector<int>& groups) const
+{
+    const int numSteps = juce::jlimit (1, maxPatternSteps, (int) stepsParam->load());
+
+    juce::StringArray stepTexts;
+
+    for (int step = 0; step < numSteps; ++step)
+    {
+        juce::StringArray degrees;
+
+        for (int row = 0; row < numPatternRows; ++row)
+            if (getPatternCell (row, step))
+                degrees.add (juce::String (row + 1));
+
+        stepTexts.add (degrees.isEmpty() ? juce::String (".") : degrees.joinIntoString ("+"));
+    }
+
+    int grouped = 0;
+
+    for (int size : groups)
+        grouped += size;
+
+    // The remembered grouping only survives while it still describes this many steps.
+    if (grouped != numSteps)
+        return stepTexts.joinIntoString ("-");
+
+    juce::StringArray groupTexts;
+    int index = 0;
+
+    for (int size : groups)
+    {
+        juce::StringArray part;
+
+        for (int i = 0; i < size; ++i)
+            part.add (stepTexts[index++]);
+
+        groupTexts.add (part.joinIntoString ("-"));
+    }
+
+    return groupTexts.joinIntoString ("|");
+}
+
 int SimpleArpAudioProcessor::scaleRootFor (int lowestNote) const
 {
     const int keyIndex = (int) keyParam->load();

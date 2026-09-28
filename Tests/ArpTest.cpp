@@ -66,6 +66,17 @@ void setParam (juce::AudioProcessorValueTreeState& state, const juce::String& id
     param->setValueNotifyingHost (param->convertTo0to1 (value));
 }
 
+/** APVTS copies parameter changes into its ValueTree asynchronously, so
+    getParameterAsValue lags behind in a headless test. Read the atomic the processor
+    itself reads instead.
+*/
+int paramValue (juce::AudioProcessorValueTreeState& state, const juce::String& id)
+{
+    auto* raw = state.getRawParameterValue (id);
+    jassert (raw != nullptr);
+    return (int) raw->load();
+}
+
 /** Runs the processor for a number of blocks, injecting a chord at sample 0 of the
     first block, and returns every note event it produced (absolute sample positions).
 */
@@ -1302,6 +1313,304 @@ void testPatternGrid()
     }
 }
 
+//==============================================================================
+void testSequenceParsing()
+{
+    std::cout << "Sequence parsing" << std::endl;
+
+    using Parse = SimpleArpAudioProcessor::SequenceParse;
+
+    {
+        // The trance figure from the brief: five groups, the last one four long so the
+        // whole thing lands on 16 sixteenths.
+        const auto parsed = SimpleArpAudioProcessor::parseSequence ("3-1-2|3-1-2|3-2-3|1-2-3|1-3-2-1");
+
+        check (parsed.ok, "the 3-1-2 figure parses");
+        check (parsed.numSteps == 16, "it is 16 steps (got " + juce::String (parsed.numSteps) + ")");
+        check (parsed.highestDegree == 3, "highest degree is 3");
+        check (parsed.groups == std::vector<int> { 3, 3, 3, 3, 4 }, "groups are 3,3,3,3,4");
+
+        const int firstThree[] { 2, 0, 1 };
+        bool rowsOk = parsed.steps.size() == 16;
+
+        for (int i = 0; i < 3 && rowsOk; ++i)
+            rowsOk = parsed.steps[(size_t) i] == std::vector<int> { firstThree[i] };
+
+        check (rowsOk, "degree N maps to row N-1");
+    }
+
+    {
+        // Separators are interchangeable and whitespace is free, so a sequence can be
+        // typed however it reads best.
+        const auto spaced = SimpleArpAudioProcessor::parseSequence ("3 1 2 | 3, 1, 2");
+        const auto dashed = SimpleArpAudioProcessor::parseSequence ("3-1-2|3-1-2");
+
+        check (spaced.ok && dashed.ok && spaced.steps == dashed.steps,
+               "spaces and commas separate steps the way '-' does");
+    }
+
+    {
+        const auto parsed = SimpleArpAudioProcessor::parseSequence ("1-.-3-0-2-_");
+
+        check (parsed.ok && parsed.numSteps == 6, "rests count as steps");
+        check (parsed.ok && parsed.steps[1].empty() && parsed.steps[3].empty()
+                 && parsed.steps[5].empty(), "'.', '0' and '_' are all rests");
+        check (parsed.ok && parsed.steps[0] == std::vector<int> { 0 },
+               "a rest does not shift the degrees around it");
+    }
+
+    {
+        const auto parsed = SimpleArpAudioProcessor::parseSequence ("1+3-2-1+2+3");
+
+        check (parsed.ok, "stacks parse");
+        check (parsed.ok && parsed.steps[0] == std::vector<int> { 0, 2 },
+               "1+3 is two rows on one step");
+        check (parsed.ok && parsed.steps[2] == std::vector<int> { 0, 1, 2 },
+               "1+2+3 is three rows on one step");
+    }
+
+    {
+        check (SimpleArpAudioProcessor::parseSequence ("1+1-2").steps[0] == std::vector<int> { 0 },
+               "a repeated degree in a stack collapses");
+        check (SimpleArpAudioProcessor::parseSequence ("12-1").ok,
+               "12 is one degree, not 1 followed by 2");
+    }
+
+    {
+        const Parse cases[]
+        {
+            SimpleArpAudioProcessor::parseSequence (""),
+            SimpleArpAudioProcessor::parseSequence ("|||"),
+            SimpleArpAudioProcessor::parseSequence ("3-x-2"),
+            SimpleArpAudioProcessor::parseSequence ("3-13-2"),
+            SimpleArpAudioProcessor::parseSequence ("3-1.5-2"),
+        };
+
+        bool allRejected = true;
+
+        for (const auto& parse : cases)
+            allRejected = allRejected && ! parse.ok && parse.error.isNotEmpty();
+
+        check (allRejected, "empty, stray and out-of-range input is rejected with a reason");
+
+        juce::String tooLong;
+
+        for (int i = 0; i < SimpleArpAudioProcessor::maxPatternSteps + 1; ++i)
+            tooLong += (i == 0 ? "1" : "-1");
+
+        check (! SimpleArpAudioProcessor::parseSequence (tooLong).ok,
+               "more than 32 steps is rejected");
+        check (SimpleArpAudioProcessor::parseSequence (tooLong.dropLastCharacters (2)).ok,
+               "exactly 32 steps is accepted");
+    }
+}
+
+void testSequenceAppliesToGrid()
+{
+    std::cout << "Sequence writes the grid" << std::endl;
+
+    {
+        SimpleArpAudioProcessor proc;
+
+        setParam (proc.apvts, "rows", SimpleArpAudioProcessor::rowsChordTones);
+        setParam (proc.apvts, "steps", 16);
+        setParam (proc.apvts, "octaves", 1);
+
+        proc.clearPattern();
+        proc.setStepVelocity (1, 42);
+
+        const auto parsed = proc.applySequence ("3-1-2|3-1-2|3-2-3|1-2-3|1-3-2-1");
+
+        check (parsed.ok, "the figure applies");
+        check (paramValue (proc.apvts, "steps") == 16,
+               "Steps follows the sequence length");
+
+        const int expectedRows[] { 2, 0, 1, 2, 0, 1, 2, 1, 2, 0, 1, 2, 0, 2, 1, 0 };
+        bool gridOk = true;
+
+        for (int step = 0; step < 16; ++step)
+            for (int row = 0; row < SimpleArpAudioProcessor::numPatternRows; ++row)
+                if (proc.getPatternCell (row, step) != (row == expectedRows[step]))
+                    gridOk = false;
+
+        check (gridOk, "exactly one cell per column, on the degree that was typed");
+        check (proc.getStepVelocity (1) == 42, "velocities survive a sequence being typed");
+    }
+
+    {
+        // A sequence that does not parse must not half-write the grid.
+        SimpleArpAudioProcessor proc;
+        setParam (proc.apvts, "steps", 4);
+        proc.clearPattern();
+        proc.setPatternCell (0, 0, true);
+
+        const auto parsed = proc.applySequence ("2-2-nope-2");
+
+        check (! parsed.ok, "a bad sequence is rejected");
+        check (proc.getPatternCell (0, 0) && ! proc.getPatternCell (1, 0),
+               "and leaves the grid exactly as it was");
+        check (paramValue (proc.apvts, "steps") == 4,
+               "and leaves Steps alone");
+    }
+
+    {
+        // Degree 4 on a triad is the root an octave up, which Octaves 1 would mute.
+        SimpleArpAudioProcessor proc;
+        setParam (proc.apvts, "rows", SimpleArpAudioProcessor::rowsChordTones);
+        setParam (proc.apvts, "octaves", 1);
+
+        proc.applySequence ("1-2-3-4-5-6");
+
+        check (paramValue (proc.apvts, "octaves") == 2,
+               "Octaves is raised to put the highest degree in reach");
+
+        setParam (proc.apvts, "octaves", 4);
+        proc.applySequence ("1-2-3");
+
+        check (paramValue (proc.apvts, "octaves") == 4,
+               "but never lowered behind your back");
+    }
+
+    {
+        // In the scale modes Octaves transposes rather than gating reach, so moving it
+        // would shift the whole pattern.
+        SimpleArpAudioProcessor proc;
+        setParam (proc.apvts, "rows", SimpleArpAudioProcessor::rowsChromatic);
+        setParam (proc.apvts, "octaves", 1);
+
+        proc.applySequence ("1-6-12");
+
+        check (paramValue (proc.apvts, "octaves") == 1,
+               "Octaves is left alone in the scale row modes");
+    }
+}
+
+void testSequenceRoundTrip()
+{
+    std::cout << "Sequence round trip" << std::endl;
+
+    SimpleArpAudioProcessor proc;
+    setParam (proc.apvts, "rows", SimpleArpAudioProcessor::rowsChordTones);
+    setParam (proc.apvts, "octaves", 2);
+
+    const juce::String typed { "3-1-2|3-1-2|3-2-3|1-2-3|1-3-2-1" };
+    const auto parsed = proc.applySequence (typed);
+
+    check (proc.sequenceToString (parsed.groups) == typed,
+           "the grid renders back to what was typed");
+    check (proc.sequenceToString ({ }) == "3-1-2-3-1-2-3-2-3-1-2-3-1-3-2-1",
+           "and to a flat sequence without the grouping");
+    check (proc.sequenceToString ({ 2, 2 }) == "3-1-2-3-1-2-3-2-3-1-2-3-1-3-2-1",
+           "a stale grouping is ignored rather than truncating the sequence");
+
+    proc.applySequence ("1+3-.-2-.");
+
+    check (proc.sequenceToString ({ }) == "1+3-.-2-.", "rests and stacks round trip");
+
+    // What a grid click does: the text has to follow the grid, not the other way round.
+    proc.setPatternCell (1, 1, true);
+
+    check (proc.sequenceToString ({ }) == "1+3-2-2-.", "a grid edit shows up in the text");
+}
+
+void testSequencePlaysBack()
+{
+    std::cout << "Sequence playback" << std::endl;
+
+    {
+        SimpleArpAudioProcessor proc;
+        proc.setRateAndBufferSizeDetails (testSampleRate, blockSize);
+        proc.prepareToPlay (testSampleRate, blockSize);
+
+        TestPlayHead playHead;
+        proc.setPlayHead (&playHead);
+
+        setParam (proc.apvts, "rate", 6);            // 1/16
+        setParam (proc.apvts, "gate", 50.0f);
+        setParam (proc.apvts, "latch", 0.0f);
+        setParam (proc.apvts, "rows", SimpleArpAudioProcessor::rowsChordTones);
+        setParam (proc.apvts, "key", 0);
+        setParam (proc.apvts, "octaves", 1);
+
+        proc.applySequence ("3-1-2");
+
+        // Three steps against a 4/4 bar: the figure has to keep phasing rather than
+        // restarting on the downbeat, which is the whole point of the 3-over-4 feel.
+        const auto events = run (proc, playHead, { 60, 64, 67 }, 120);
+        const auto notes = noteOnOrder (events, 9);
+
+        check (notesMatch (notes, { 67, 60, 64, 67, 60, 64, 67, 60, 64 }),
+               "3-1-2 on C major plays G, C, E and keeps going -> " + describe (notes));
+    }
+
+    {
+        SimpleArpAudioProcessor proc;
+        proc.setRateAndBufferSizeDetails (testSampleRate, blockSize);
+        proc.prepareToPlay (testSampleRate, blockSize);
+
+        TestPlayHead playHead;
+        proc.setPlayHead (&playHead);
+
+        setParam (proc.apvts, "rate", 6);
+        setParam (proc.apvts, "gate", 50.0f);
+        setParam (proc.apvts, "latch", 0.0f);
+        setParam (proc.apvts, "rows", SimpleArpAudioProcessor::rowsChordTones);
+        setParam (proc.apvts, "key", 0);
+        setParam (proc.apvts, "octaves", 1);
+
+        // Degree 4 is the root an octave up, which applySequence has to open reach for.
+        proc.applySequence ("1-4-2-.-3");
+
+        const auto events = run (proc, playHead, { 60, 64, 67 }, 140);
+        const auto notes = noteOnOrder (events, 8);
+
+        check (notesMatch (notes, { 60, 72, 64, 67, 60, 72, 64, 67 }),
+               "degree 4 sounds an octave up and the rest stays silent -> " + describe (notes));
+    }
+}
+
+void testSequenceSurvivesAPreset()
+{
+    std::cout << "Sequence survives a preset" << std::endl;
+
+    juce::MemoryBlock saved;
+
+    {
+        SimpleArpAudioProcessor proc;
+        setParam (proc.apvts, "rows", SimpleArpAudioProcessor::rowsChordTones);
+        setParam (proc.apvts, "octaves", 1);
+
+        const auto parsed = proc.applySequence ("3-1-2|3-1-2|3-2-3|1-2-3|1-3-2-1");
+
+        // What the editor writes alongside the grid so the '|' survive a recall.
+        juce::StringArray groups;
+
+        for (int size : parsed.groups)
+            groups.add (juce::String (size));
+
+        proc.apvts.state.setProperty ("sequenceGroups", groups.joinIntoString (","), nullptr);
+        proc.setStepVelocity (3, 77);
+        proc.getStateInformation (saved);
+    }
+
+    SimpleArpAudioProcessor proc;
+    proc.setStateInformation (saved.getData(), (int) saved.getSize());
+
+    check (paramValue (proc.apvts, "steps") == 16, "Steps comes back as 16");
+
+    std::vector<int> groups;
+    juce::StringArray parts;
+    parts.addTokens (proc.apvts.state.getProperty ("sequenceGroups").toString(), ",", "");
+
+    for (const auto& part : parts)
+        groups.push_back (part.getIntValue());
+
+    check (groups == std::vector<int> { 3, 3, 3, 3, 4 }, "the grouping comes back");
+    check (proc.sequenceToString (groups) == "3-1-2|3-1-2|3-2-3|1-2-3|1-3-2-1",
+           "and the field would redraw exactly as it was typed");
+    check (proc.getStepVelocity (3) == 77, "velocities still come back too");
+}
+
 } // namespace
 
 //==============================================================================
@@ -1323,6 +1632,11 @@ int main()
     testKeyReleaseAndTransportStop();
     testLatch();
     testPatternGrid();
+    testSequenceParsing();
+    testSequenceAppliesToGrid();
+    testSequenceRoundTrip();
+    testSequencePlaysBack();
+    testSequenceSurvivesAPreset();
 
     std::cout << std::endl
               << (failures == 0 ? "ALL TESTS PASSED"

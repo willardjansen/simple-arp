@@ -32,6 +32,12 @@ to be closed rather than retrying.
 - The grid and velocities are **not** parameters — they live in atomics and are serialised
   by hand into the APVTS tree in `getStateInformation`. Add new grid-shaped state the same
   way; add new scalar controls as APVTS parameters.
+- **The grid is the source of truth; the Sequence field is a view of it.** Parsing lives on
+  the processor (`parseSequence` / `applySequence` / `sequenceToString`) so it is testable
+  headlessly, and the editor only renders and re-renders. Anything that writes the grid
+  must leave the field correct on the next timer tick — don't add a second writer.
+- `applySequence` writes rows only. `clearPattern` also resets velocities, which is right
+  for the Clear button and wrong for retyping a sequence.
 - Tests set every parameter they depend on explicitly. Do not lean on defaults.
 
 ## Things to be careful about

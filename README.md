@@ -1,7 +1,7 @@
 # Simple Arp
 
 A tempo-synced MIDI arpeggiator built as a VST3 with JUCE. You hold a chord, it plays
-back a pattern you draw on a 12-row grid.
+back a pattern you draw on a 12-row grid or type as a sequence of chord degrees.
 
 Built and tested on Windows 11 with MSVC and Cubase.
 
@@ -25,12 +25,48 @@ The grid is the only sequencer — 12 rows by up to 32 steps.
 | **Steps** | Pattern length, 1–32. The readout shows what that works out to (`16 × 1/16 = 1 bar`). |
 | **Fill** | Writes `Up` / `Down` / `Up-Down` / `Random` into the grid as a starting point. Fully editable afterwards. |
 | **Clear** | Wipes the grid and resets velocities to 100. |
+| **Sequence** | The grid as text — see below. Type `3-1-2\|3-1-2` and press Enter. |
 
 Below the grid is a **velocity lane**, one bar per step. In the grid, click to toggle and
 drag to paint — the first cell you touch decides whether the drag draws or erases.
 
 The note-name gutter on the left shows the pitch each row will actually play for whatever
 you're holding right now. Rows outside the current reach are dimmed there and stay silent.
+
+---
+
+## Typing a pattern
+
+The **Sequence** field is the grid as text. Set `Rows` to `Chord tones` and the numbers are
+degrees of whatever you're holding, counting up from the lowest note — so on a triad
+`1-2-3` is root, third, fifth, and `4` is the root an octave up.
+
+```
+3-1-2|3-1-2|3-2-3|1-2-3|1-3-2-1
+```
+
+| | |
+| --- | --- |
+| `1` … `12` | A degree. Degree N is grid row N, so past the top of the chord it wraps up an octave. |
+| `.` `_` `0` | A rest — a step that holds its place and plays nothing. |
+| `1+3` | Both degrees on the same step. |
+| `\|` | Cosmetic. It groups the sequence so it reads in phrases; playback ignores it. |
+| `-` `,` space | All separate one step from the next, so type it however it reads best. |
+
+Enter applies it. Steps follows the length of what you typed, and in `Chord tones` Octaves
+is raised if it would otherwise put your highest degree out of reach — it's never lowered.
+If the sequence doesn't parse, the field says why and nothing changes, so you can fix the
+typo rather than retype the line.
+
+The grid is the source of truth, not the text. Painting a cell, `Fill` and `Clear` all
+re-render the field, and the `|` positions from the last thing you typed are kept as long
+as the sequence is still that long.
+
+**Groups of three against 4/4.** The step column comes from the absolute step number, not
+from the bar, so a sequence whose length doesn't divide the bar keeps phasing instead of
+restarting on every downbeat. `3-1-2` at `1/16` takes three bars to come back round — which
+is the whole point of the figure. The example above is sixteen steps precisely so it *does*
+land on the bar; drop the trailing `-1` and it starts walking.
 
 ---
 
@@ -82,12 +118,17 @@ standing check that every note-on is closed and none overlap.
 Run it after every change. It catches the things that are miserable to diagnose in a DAW,
 particularly stuck notes.
 
-Two harness details worth knowing if you add tests:
+Three harness details worth knowing if you add tests:
 
 - Call `setRateAndBufferSizeDetails()` before `prepareToPlay()`. `getSampleRate()` returns
   0 otherwise and the processor falls back to 44100, quietly breaking sample-count maths.
 - Set parameters explicitly rather than relying on defaults. Defaults have moved twice
   and silently invalidated expectations both times.
+- Read parameters back with `paramValue()`, which goes through `getRawParameterValue`.
+  `getParameterAsValue` reads the APVTS *ValueTree*, which is only brought up to date
+  asynchronously — with no message loop running it still holds the default, so an
+  assertion against it passes or fails on what the default happens to be rather than on
+  what the code did.
 
 ---
 

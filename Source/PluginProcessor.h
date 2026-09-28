@@ -82,6 +82,41 @@ public:
     /** Writes a classic arpeggiator shape into the grid, ready to be edited. */
     void fillPattern (int shape);
 
+    //==============================================================================
+    /** The outcome of reading a degree sequence such as "3-1-2|3-1-2|1+3-.-2". */
+    struct SequenceParse
+    {
+        bool ok = false;
+        juce::String error;             // why it was rejected; empty when ok
+        int numSteps = 0;
+        int highestDegree = 0;          // 1-based, 0 when every step is a rest
+        int octavesRaisedTo = 0;        // non-zero only when applying moved the knob
+        std::vector<int> groups;        // step counts between the '|' that were typed
+        std::vector<std::vector<int>> steps;   // 0-based rows per step, empty == rest
+    };
+
+    /** Reads a degree sequence without touching anything.
+
+        Degrees are 1-based chord tones counting up from the lowest held note, so on a
+        triad 1-2-3 is root, third, fifth and 4 is the root an octave up. '.', '_' and
+        '0' are rests, '1+3' stacks two degrees on one step, and '|' is cosmetic: it
+        groups the sequence for reading and has no effect on playback.
+    */
+    static SequenceParse parseSequence (const juce::String& text);
+
+    /** Parses `text` and, if the whole string is valid, writes it into the grid and
+        sets Steps to its length. Leaves the grid untouched when it does not parse.
+
+        Per-step velocities survive, and in Chord tones the Octaves parameter is raised
+        if it would otherwise put the highest degree out of reach.
+    */
+    SequenceParse applySequence (const juce::String& text);
+
+    /** Renders the grid back out as a degree sequence. `groups` reinstates the '|'
+        positions when its sizes add up to the current pattern length.
+    */
+    juce::String sequenceToString (const std::vector<int>& groups = {}) const;
+
     /** Per-step velocity, 1..127. In Pattern mode this replaces the played velocity. */
     int getStepVelocity (int step) const noexcept;
     void setStepVelocity (int step, int velocity) noexcept;
@@ -123,6 +158,7 @@ private:
     int scaleRootFor (int lowestNote) const;
     void rebuildSequence();
     void clearArpState();
+    void clearPatternRows() noexcept;
 
     juce::String patternToString() const;
     void patternFromString (const juce::String&);

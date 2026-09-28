@@ -6,6 +6,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <array>
+#include <vector>
 
 //==============================================================================
 /** The 12-row pattern grid. Rows run bottom-to-top: the bottom row is the lowest
@@ -90,7 +91,7 @@ class SimpleArpAudioProcessorEditor final : public juce::AudioProcessorEditor,
 {
 public:
     explicit SimpleArpAudioProcessorEditor (SimpleArpAudioProcessor&);
-    ~SimpleArpAudioProcessorEditor() override = default;
+    ~SimpleArpAudioProcessorEditor() override;
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -108,6 +109,25 @@ private:
     juce::String describePatternLength() const;
     void showFillMenu();
 
+    /** Reads the sequence field and writes it into the grid, or reports why it would not
+        parse and leaves both the grid and the typed text alone.
+    */
+    void applySequenceText();
+
+    /** Re-renders the field from the grid, so Fill, Clear, a grid click or a recalled
+        preset all show up as text. Skipped while the field has focus, so it never
+        rewrites what is being typed.
+    */
+    void refreshSequenceText();
+
+    void setSequenceStatus (const juce::String& text, bool isError);
+
+    /** The '|' positions from the last sequence that parsed, kept so grid edits do not
+        flatten the grouping. Stored with the preset as a `sequenceGroups` property.
+    */
+    std::vector<int> readStoredGroups() const;
+    void storeGroups (const std::vector<int>&);
+
     SimpleArpAudioProcessor& processorRef;
 
     juce::ComboBox rateBox, rowModeBox, keyBox;
@@ -118,6 +138,10 @@ private:
 
     juce::Label rateLabel, rowModeLabel, octavesLabel, gateLabel, stepsLabel,
                 lengthLabel, velocityLabel, keyLabel;
+
+    juce::TextEditor sequenceEditor;
+    juce::Label sequenceLabel, sequenceStatus;
+    juce::String shownSequence;
 
     RowLabels rowLabels;
     PatternGrid grid;

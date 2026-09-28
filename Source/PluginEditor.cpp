@@ -8,6 +8,7 @@ namespace
     const juce::Colour textColour      { 0xffd6dae0 };
     const juce::Colour panelColour     { 0xff2c3036 };
     const juce::Colour outlineColour   { 0xff3a3f46 };
+    const juce::Colour warningColour   { 0xffe0864f };
 
 }
 
@@ -256,6 +257,14 @@ void VelocityLane::applyDrag (const juce::MouseEvent& event)
 }
 
 //==============================================================================
+SimpleArpAudioProcessorEditor::~SimpleArpAudioProcessorEditor()
+{
+    // Tearing down the window moves keyboard focus, and the field's focus-lost callback
+    // would then run against a half-destroyed editor.
+    sequenceEditor.onFocusLost = nullptr;
+    sequenceEditor.onReturnKey = nullptr;
+}
+
 SimpleArpAudioProcessorEditor::SimpleArpAudioProcessorEditor (SimpleArpAudioProcessor& p)
     : juce::AudioProcessorEditor (&p), processorRef (p), rowLabels (p), grid (p), velocities (p)
 {
@@ -302,6 +311,32 @@ SimpleArpAudioProcessorEditor::SimpleArpAudioProcessorEditor (SimpleArpAudioProc
     };
     addAndMakeVisible (clearButton);
 
+    sequenceLabel.setText ("Sequence", juce::dontSendNotification);
+    sequenceLabel.setJustificationType (juce::Justification::centredLeft);
+    sequenceLabel.setColour (juce::Label::textColourId, textColour.withAlpha (0.7f));
+    addAndMakeVisible (sequenceLabel);
+
+    sequenceEditor.setMultiLine (false);
+    sequenceEditor.setReturnKeyStartsNewLine (false);
+    sequenceEditor.setFont (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 13.0f,
+                                               juce::Font::plain));
+    sequenceEditor.setColour (juce::TextEditor::backgroundColourId, panelColour);
+    sequenceEditor.setColour (juce::TextEditor::textColourId, textColour);
+    sequenceEditor.setColour (juce::TextEditor::outlineColourId, outlineColour);
+    sequenceEditor.setColour (juce::TextEditor::focusedOutlineColourId, accent);
+    sequenceEditor.setColour (juce::TextEditor::highlightColourId, accent.withAlpha (0.3f));
+    sequenceEditor.setColour (juce::CaretComponent::caretColourId, accent);
+    sequenceEditor.setTooltip ("Degrees of the held chord, low to high. 1-2-3 is a triad "
+                               "root/third/fifth, 4 is the root an octave up. '.' rests, "
+                               "'1+3' plays both on one step, '|' just groups for reading.");
+    sequenceEditor.onReturnKey = [this] { applySequenceText(); };
+    sequenceEditor.onFocusLost = [this] { applySequenceText(); };
+    addAndMakeVisible (sequenceEditor);
+
+    sequenceStatus.setJustificationType (juce::Justification::centredRight);
+    sequenceStatus.setColour (juce::Label::textColourId, textColour.withAlpha (0.5f));
+    addAndMakeVisible (sequenceStatus);
+
     velocityLabel.setText ("Velocity", juce::dontSendNotification);
     velocityLabel.setJustificationType (juce::Justification::centredLeft);
     velocityLabel.setColour (juce::Label::textColourId, textColour.withAlpha (0.7f));
@@ -320,8 +355,11 @@ SimpleArpAudioProcessorEditor::SimpleArpAudioProcessorEditor (SimpleArpAudioProc
     stepsAttachment   = std::make_unique<SliderAttachment> (state, "steps", stepsSlider);
     latchAttachment   = std::make_unique<ButtonAttachment> (state, "latch", latchButton);
 
-    setSize (720, 560);
+    refreshSequenceText();
+
+    setSize (800, 600);
     startTimerHz (20);
+
 }
 
 //==============================================================================
@@ -390,6 +428,98 @@ juce::String SimpleArpAudioProcessorEditor::describePatternLength() const
              + (bars == 1.0 ? " bar" : " bars");
 }
 
+std::vector<int> SimpleArpAudioProcessorEditor::readStoredGroups() const
+{
+    std::vector<int> groups;
+
+    const auto text = processorRef.apvts.state.getProperty ("sequenceGroups").toString();
+
+    if (text.isEmpty())
+        return groups;
+
+    juce::StringArray parts;
+    parts.addTokens (text, ",", "");
+
+    for (const auto& part : parts)
+        if (const int size = part.getIntValue(); size > 0)
+            groups.push_back (size);
+
+    return groups;
+}
+
+void SimpleArpAudioProcessorEditor::storeGroups (const std::vector<int>& groups)
+{
+    juce::StringArray parts;
+
+    for (int size : groups)
+        parts.add (juce::String (size));
+
+    processorRef.apvts.state.setProperty ("sequenceGroups", parts.joinIntoString (","), nullptr);
+}
+
+void SimpleArpAudioProcessorEditor::setSequenceStatus (const juce::String& text, bool isError)
+{
+    sequenceStatus.setColour (juce::Label::textColourId,
+                              isError ? warningColour : textColour.withAlpha (0.5f));
+    sequenceStatus.setText (text, juce::dontSendNotification);
+}
+
+void SimpleArpAudioProcessorEditor::applySequenceText()
+{
+    const auto typed = sequenceEditor.getText().trim();
+
+    // An empty field is not "clear the pattern" -- Clear is, and it is right there.
+    if (typed.isEmpty())
+    {
+        refreshSequenceText();
+        return;
+    }
+
+    const auto parsed = processorRef.applySequence (typed);
+
+    if (! parsed.ok)
+    {
+        // Leave the text as typed so it can be corrected rather than retyped.
+        setSequenceStatus (parsed.error, true);
+        return;
+    }
+
+    storeGroups (parsed.groups);
+
+    juce::String status = juce::String (parsed.numSteps)
+                            + (parsed.numSteps == 1 ? " step" : " steps");
+
+    if (parsed.octavesRaisedTo > 0)
+        status += "  -  Octaves raised to " + juce::String (parsed.octavesRaisedTo);
+
+    setSequenceStatus (status, false);
+
+    // Echo back the canonical spelling, so the next refresh is a no-op and leaves the
+    // status line standing rather than immediately rewriting the field underneath it.
+    shownSequence = processorRef.sequenceToString (parsed.groups);
+    sequenceEditor.setText (shownSequence, juce::dontSendNotification);
+
+    grid.repaint();
+
+    velocities.repaint();
+}
+
+void SimpleArpAudioProcessorEditor::refreshSequenceText()
+{
+    // Never overwrite a half-typed sequence.
+    if (sequenceEditor.hasKeyboardFocus (true))
+        return;
+
+    const auto rendered = processorRef.sequenceToString (readStoredGroups());
+
+    if (rendered == shownSequence && sequenceEditor.getText() == rendered)
+        return;
+
+    shownSequence = rendered;
+    sequenceEditor.setText (rendered, juce::dontSendNotification);
+    setSequenceStatus ({ }, false);
+}
+
 void SimpleArpAudioProcessorEditor::timerCallback()
 {
     grid.setActiveRows (processorRef.getActivePatternRows());
@@ -406,6 +536,8 @@ void SimpleArpAudioProcessorEditor::timerCallback()
 
     if (lengthLabel.getText() != text)
         lengthLabel.setText (text, juce::dontSendNotification);
+
+    refreshSequenceText();
 }
 
 //==============================================================================
@@ -485,6 +617,14 @@ void SimpleArpAudioProcessorEditor::resized()
     lengthLabel.setBounds (stepsRow);
 
     area.removeFromTop (8);
+
+    auto sequenceRow = area.removeFromTop (26);
+    sequenceLabel.setBounds (sequenceRow.removeFromLeft (62));
+    sequenceStatus.setBounds (sequenceRow.removeFromRight (190));
+    sequenceEditor.setBounds (sequenceRow.withTrimmedRight (8));
+
+    area.removeFromTop (8);
+
 
     auto laneArea = area.removeFromBottom (86);
     velocityLabel.setBounds (laneArea.removeFromTop (18).withTrimmedLeft (44));
