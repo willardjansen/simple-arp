@@ -4,6 +4,16 @@ draw on a 12-row grid or type as a sequence of chord degrees.
 Built for writing trance-style arps, where the useful figures are groups of three against
 4/4 and you want to type them rather than click them.
 
+## What's new in 1.0.1
+
+Documentation only. The plugin itself is unchanged from 1.0.0, so there is no need to
+reinstall unless you want the updated `INSTALL.md` alongside it.
+
+- Ableton Live routing is now shown in a screenshot. The second dropdown under **MIDI
+  From** is the step people miss, and a picture settles it faster than a sentence.
+- The docs now say which DAWs this has actually been tested in — Cubase and Live 12 —
+  and mark the rest as untested rather than implying otherwise.
+
 ## Typing a pattern
 
 Set **Rows** to `Chord tones` and the numbers are degrees of whatever you're holding,
