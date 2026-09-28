@@ -3,7 +3,8 @@
 A tempo-synced MIDI arpeggiator built as a VST3 with JUCE. You hold a chord, it plays
 back a pattern you draw on a 12-row grid or type as a sequence of chord degrees.
 
-Built and tested on Windows 11 with MSVC and Cubase.
+Built on Windows 11 with MSVC. Tested in Cubase and Ableton Live 12; the macOS build
+is produced by CI as a universal binary.
 
 ---
 

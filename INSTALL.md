@@ -39,7 +39,7 @@ plugin that only makes notes, so this ships as an *Instrument* that outputs sile
 sends MIDI. That means you will find it under instruments, not under MIDI inserts or
 audio effects, and it needs two tracks rather than one.
 
-### Cubase / Nuendo
+### Cubase / Nuendo (tested in Cubase)
 
 1. Instrument track → **Simple Arp**. This is the track you play and record onto.
 2. On the destination instrument's track, set **MIDI input → Simple Arp**.
@@ -48,16 +48,18 @@ audio effects, and it needs two tracks rather than one.
 Your held chords get recorded, so pattern, rate and scale all stay editable after the
 take. Save it as a Track Preset and it's a two-click recall.
 
-### Ableton Live
+### Ableton Live (tested in Live 12)
 
 1. MIDI track with **Simple Arp** on it.
 2. Second MIDI track with your instrument; set its **MIDI From** to the Simple Arp
    track, and pick **Simple Arp** in the second dropdown. Monitor: **In**.
 
-### Logic, Reaper, Bitwig, Studio One
+### Logic, Reaper, Bitwig, Studio One (untested)
 
 Same shape everywhere: Simple Arp on one track, a second track whose MIDI input is the
-first track's output, with input monitoring on.
+first track's output, with input monitoring on. Reaper, Bitwig and FL can also chain it
+within a single track. If you get it working somewhere not listed here, open an issue and
+I will add the steps.
 
 ---
 
