@@ -30,6 +30,25 @@ else()
     FetchContent_MakeAvailable(JUCE)
 endif()
 
+#==============================================================================
+# CLAP, through the unofficial clap-juce-extensions: JUCE 9 has no CLAP wrapper.
+#
+# Bitwig plays a JUCE VST3's notes but drops everything else it sends out (CCs and pitch
+# bend go as LegacyMIDICCOut events). The CLAP sends plain MIDI events, the format Bitwig
+# handles natively.
+# Pinned to a commit; the library has no release tags.
+set(SIMPLEARP_CLAP_JUCE_COMMIT "7adee3a1bd4684d4caa5601100e364abccff4b4d" CACHE STRING
+    "clap-juce-extensions commit to fetch")
+
+include(FetchContent)
+FetchContent_Declare(clap-juce-extensions
+    GIT_REPOSITORY https://github.com/free-audio/clap-juce-extensions.git
+    GIT_TAG        ${SIMPLEARP_CLAP_JUCE_COMMIT}
+    GIT_SUBMODULES_RECURSE TRUE
+    SOURCE_SUBDIR  do-not-add)
+FetchContent_MakeAvailable(clap-juce-extensions)
+add_subdirectory("${clap-juce-extensions_SOURCE_DIR}" "${clap-juce-extensions_BINARY_DIR}" EXCLUDE_FROM_ALL)
+
 juce_add_plugin(SimpleArp
     COMPANY_NAME            "Willard Jansen"
     BUNDLE_ID               "com.willardjansen.simplearp"
@@ -44,6 +63,12 @@ juce_add_plugin(SimpleArp
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     COPY_PLUGIN_AFTER_BUILD  FALSE
     PRODUCT_NAME             "Simple Arp")
+
+# Builds SimpleArp_CLAP next to the VST3. The ID is stored in users' projects: never
+# change it.
+clap_juce_extensions_plugin(TARGET SimpleArp
+    CLAP_ID "com.willardjansen.simplearp"
+    CLAP_FEATURES note-effect utility)
 
 target_sources(SimpleArp PRIVATE
     Source/PluginProcessor.cpp

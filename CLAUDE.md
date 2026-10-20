@@ -63,3 +63,5 @@ VST3 has no MIDI-effect category. This is an `IS_SYNTH` plugin with a silent aud
 emits MIDI. Do not "fix" this by setting `IS_MIDI_EFFECT` — that produces a plugin declaring
 itself `Fx`, which hosts put in audio insert slots where it receives no MIDI and does
 nothing. `README.md` has the detail.
+
+Ships as VST3 and CLAP. The CLAP (clap-juce-extensions, pinned in `CMakeLists.txt`) is for Bitwig, which drops the CCs and pitch bend a JUCE VST3 sends out. Never change its `CLAP_ID`: it is stored in users' projects. Cubase and Live do not load CLAP, so keep the VST3.

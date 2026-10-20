@@ -4,7 +4,7 @@
 
 .DESCRIPTION
     Configures (first run or with -Configure), builds Release, runs the headless test
-    harness, and copies the VST3 into the system plugin folder. Stops at the first
+    harness, and copies the VST3 and CLAP into the system plugin folders. Stops at the first
     failure so a broken build never gets installed.
 
 .EXAMPLE
@@ -63,20 +63,31 @@ if (-not $SkipTests) {
 
 # ------------------------------------------------------------------ install
 if (-not $SkipInstall) {
-    $source = Join-Path $buildDir "SimpleArp_artefacts\$Config\VST3\Simple Arp.vst3"
-    $target = 'C:\Program Files\Common Files\VST3\Simple Arp.vst3'
-
-    if (-not (Test-Path $source)) { throw "Built plugin not found at $source" }
+    # The VST3 for Cubase and Live; the CLAP for Bitwig and other CLAP hosts.
+    $installs = @(
+        @{ Source = "VST3\Simple Arp.vst3"; Target = 'C:\Program Files\Common Files\VST3\Simple Arp.vst3' },
+        @{ Source = "CLAP\Simple Arp.clap"; Target = 'C:\Program Files\Common Files\CLAP\Simple Arp.clap' }
+    )
 
     Write-Host '==> Installing' -ForegroundColor Cyan
 
-    try {
-        if (Test-Path $target) { Remove-Item $target -Recurse -Force -ErrorAction Stop }
-        Copy-Item $source $target -Recurse -Force -ErrorAction Stop
-        Write-Host "    $target" -ForegroundColor DarkGray
-    }
-    catch {
-        throw "Could not replace the installed plugin. It is usually locked by a running host - close Cubase and run again.`n$_"
+    foreach ($install in $installs) {
+        $source = Join-Path $buildDir "SimpleArp_artefacts\$Config\$($install.Source)"
+        $target = $install.Target
+
+        if (-not (Test-Path $source)) { throw "Built plugin not found at $source" }
+
+        try {
+            if (Test-Path $target) { Remove-Item $target -Recurse -Force -ErrorAction Stop }
+            New-Item -ItemType Directory -Force (Split-Path $target) | Out-Null
+            Copy-Item $source $target -Recurse -Force -ErrorAction Stop
+            Write-Host "    $target" -ForegroundColor DarkGray
+        }
+        catch {
+            # Two causes: a host has it open, or the folder is still admin-only (the CLAP
+            # folder is, out of the box).
+            throw "Could not install $target. Either a host has it open (close Cubase or Bitwig), or the folder needs a one-time grant from an admin PowerShell:`n    icacls `"$(Split-Path $target)`" /grant `"*S-1-5-32-545:(OI)(CI)F`"`n$_"
+        }
     }
 
     Write-Host '    Remove and re-add the plugin in your host to pick up GUI changes.' -ForegroundColor DarkGray

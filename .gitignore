@@ -1,6 +1,7 @@
 # Build output
 build/
 *.vst3
+*.clap
 
 # JUCE is cloned in, not vendored
 JUCE/

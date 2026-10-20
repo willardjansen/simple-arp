@@ -20,6 +20,11 @@ C:\Program Files\Common Files\VST3\
 ~/Library/Audio/Plug-Ins/VST3/         (just you)
 ```
 
+For **Bitwig**, Reaper, Studio One and other CLAP hosts, the zip also has
+`Simple Arp.clap`. Put it in `C:\Program Files\Common Files\CLAP\` (Windows) or
+`/Library/Audio/Plug-Ins/CLAP/` (macOS). Cubase and Live don't load CLAP, so they use
+the VST3.
+
 Then rescan plugins in your DAW.
 
 > **macOS, first launch.** The build is not signed or notarised, so Gatekeeper will
@@ -62,10 +67,15 @@ In the shot above, the Serum track takes **MIDI From → 2-Simple Arp**, then **
 in the dropdown below it, and is armed. Play or record chords into the Simple Arp track and
 Serum gets the arpeggiated notes.
 
-### Logic, Reaper, Bitwig, Studio One (untested)
+### Bitwig Studio
+
+One track, no routing: on your synth's track, put **Simple Arp (CLAP)** in the device
+chain **before** the synth. Bitwig passes its notes straight to the next device.
+
+### Logic, Reaper, Studio One (untested)
 
 Same shape everywhere: Simple Arp on one track, a second track whose MIDI input is the
-first track's output, with input monitoring on. Reaper, Bitwig and FL can also chain it
+first track's output, with input monitoring on. Reaper and FL can also chain it
 within a single track. If you get it working somewhere not listed here, open an issue and
 I will add the steps.
 

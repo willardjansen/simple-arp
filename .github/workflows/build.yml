@@ -52,16 +52,19 @@ jobs:
         run: |
           mkdir -p dist stage
           vst3=$(find build -maxdepth 4 -name '*.vst3' | head -1)
-          echo "packaging $vst3"
+          clap=$(find build -maxdepth 4 -name '*.clap' | head -1)
+          echo "packaging $vst3 and $clap"
 
           if [ "$RUNNER_OS" = "macOS" ]; then
             # ditto preserves the bundle's symlinks and its ad-hoc signature; zip drops
             # both, and the result fails to load with no useful error.
             ditto "$vst3" "stage/$(basename "$vst3")"
+            ditto "$clap" "stage/$(basename "$clap")"
             cp INSTALL.md stage/
             ditto -c -k --sequesterRsrc "stage" "dist/Simple Arp-macOS.zip"
           else
             cp -r "$vst3" stage/
+            cp "$clap" stage/
             cp INSTALL.md stage/
             powershell -Command "Compress-Archive -Path 'stage/*' -DestinationPath 'dist/Simple Arp-Windows.zip'"
           fi
