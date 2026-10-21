@@ -4,6 +4,17 @@ draw on a 12-row grid or type as a sequence of chord degrees.
 Built for writing trance-style arps, where the useful figures are groups of three against
 4/4 and you want to type them rather than click them.
 
+## What's new in 1.0.2
+
+- **Stopping the transport now stops a latched arp.** Before, a latched chord kept
+  free-running after you hit stop, because the host's note-offs only lift keys and Latch
+  ignores those by design. Keys you're physically holding when you stop keep playing
+  until you let go, and latching with the transport stopped works exactly as before.
+  If you relied on a latched arp ringing on after stop, that no longer happens.
+- **A CLAP build ships alongside the VST3**, for Bitwig, Reaper, Studio One and other
+  CLAP hosts. In Bitwig it goes straight in front of your synth on one track, no routing.
+  Cubase and Live don't load CLAP, so keep using the VST3 there.
+
 ## What's new in 1.0.1
 
 Documentation only. The plugin itself is unchanged from 1.0.0, so there is no need to
@@ -56,12 +67,16 @@ Unzip and drop `Simple Arp.vst3` into your VST3 folder:
 - **Windows** — `C:\Program Files\Common Files\VST3\`
 - **macOS** — `/Library/Audio/Plug-Ins/VST3/`
 
+For CLAP hosts, `Simple Arp.clap` goes in `C:\Program Files\Common Files\CLAP\` (Windows)
+or `/Library/Audio/Plug-Ins/CLAP/` (macOS).
+
 The macOS build is universal (Apple Silicon and Intel) but **not signed or notarised**, so
 Gatekeeper will block it and most DAWs will just report it as broken. Clear the quarantine
 flag once:
 
 ```
 xattr -dr com.apple.quarantine "/Library/Audio/Plug-Ins/VST3/Simple Arp.vst3"
+xattr -dr com.apple.quarantine "/Library/Audio/Plug-Ins/CLAP/Simple Arp.clap"
 ```
 
 ## It needs two tracks
