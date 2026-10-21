@@ -47,6 +47,31 @@ FetchContent_Declare(clap-juce-extensions
     GIT_SUBMODULES_RECURSE TRUE
     SOURCE_SUBDIR  do-not-add)
 FetchContent_MakeAvailable(clap-juce-extensions)
+
+# Patched: the wrapper resizes a fixed-size editor to whatever the host makes the window
+# and reports that back as the plugin's size. Moving the window between monitors with
+# different scaling in Bitwig on Windows turned that into a loop that shrank the editor
+# to 2 px or grew it to 18000 px. The patch keeps a fixed-size editor at its own size.
+# Idempotent: a reverse-check that succeeds means the patch is already in.
+find_package(Git REQUIRED)
+set(SIMPLEARP_CLAP_JUCE_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/patches/clap-juce-fixed-size-editor.patch")
+execute_process(
+    COMMAND "${GIT_EXECUTABLE}" apply --check --reverse --ignore-whitespace "${SIMPLEARP_CLAP_JUCE_PATCH}"
+    WORKING_DIRECTORY "${clap-juce-extensions_SOURCE_DIR}"
+    RESULT_VARIABLE clap_juce_patch_present
+    OUTPUT_QUIET ERROR_QUIET)
+if(NOT clap_juce_patch_present EQUAL 0)
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" apply --ignore-whitespace "${SIMPLEARP_CLAP_JUCE_PATCH}"
+        WORKING_DIRECTORY "${clap-juce-extensions_SOURCE_DIR}"
+        RESULT_VARIABLE clap_juce_patch_result
+        ERROR_VARIABLE clap_juce_patch_error)
+    if(NOT clap_juce_patch_result EQUAL 0)
+        message(FATAL_ERROR "Could not apply ${SIMPLEARP_CLAP_JUCE_PATCH}. "
+            "Is clap-juce-extensions at ${SIMPLEARP_CLAP_JUCE_COMMIT}?\n${clap_juce_patch_error}")
+    endif()
+    message(STATUS "Applied clap-juce-extensions fixed-size editor patch")
+endif()
 add_subdirectory("${clap-juce-extensions_SOURCE_DIR}" "${clap-juce-extensions_BINARY_DIR}" EXCLUDE_FROM_ALL)
 
 juce_add_plugin(SimpleArp

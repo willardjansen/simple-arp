@@ -1,0 +1,35 @@
+diff --git a/src/wrapper/clap-juce-wrapper.cpp b/src/wrapper/clap-juce-wrapper.cpp
+index 8b7ad94..47efc0c 100644
+--- a/src/wrapper/clap-juce-wrapper.cpp
++++ b/src/wrapper/clap-juce-wrapper.cpp
+@@ -2156,7 +2156,9 @@ class ClapJuceWrapper : public clap::helpers::Plugin<
+         {
+             if (editor != nullptr)
+             {
+-                auto prevEditorBounds = editor->getLocalArea(this, lastBounds);
++                auto prevEditorBounds = editor->isResizable()
++                                            ? editor->getLocalArea(this, lastBounds)
++                                            : editor->getLocalBounds();
+ 
+                 {
+                     const juce::ScopedValueSetter<bool> resizingChildSetter{resizingChild, true};
+@@ -2177,7 +2179,18 @@ class ClapJuceWrapper : public clap::helpers::Plugin<
+         {
+             if (editor != nullptr)
+             {
+-                if (!resizingParent)
++                if (!resizingParent && !editor->isResizable())
++                {
++                    // A fixed-size editor keeps its size whatever the host does to the
++                    // window. Following the window here made Bitwig on Windows loop on
++                    // a monitor change: it resized the window, the editor shrank or grew
++                    // to fit, guiGetSize reported that, and Bitwig resized from it again,
++                    // 1.5x per round, until the editor was 2 px or 18000 px.
++                    const juce::ScopedValueSetter<bool> resizingParentSetter{resizingParent, true};
++                    lastBounds = getSizeToContainChild();
++                    setBounds(lastBounds.withPosition(getX(), getY()));
++                }
++                else if (!resizingParent)
+                 {
+                     auto newBounds = getLocalBounds();
+ 
