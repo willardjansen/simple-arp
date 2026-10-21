@@ -4,6 +4,13 @@ draw on a 12-row grid or type as a sequence of chord degrees.
 Built for writing trance-style arps, where the useful figures are groups of three against
 4/4 and you want to type them rather than click them.
 
+## What's new in 1.0.3
+
+- **The CLAP window keeps its size when you move it to another monitor.** In Bitwig on
+  Windows, dragging the window between displays set to different scaling (say 150% and
+  100%) could make it shrink to a speck or stretch far past the screen. It now stays its
+  normal size on every display. The VST3 and the arp itself are unchanged.
+
 ## What's new in 1.0.2
 
 - **Stopping the transport now stops a latched arp.** Before, a latched chord kept
