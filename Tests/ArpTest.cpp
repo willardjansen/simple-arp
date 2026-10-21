@@ -1047,6 +1047,69 @@ void testLatch()
            "pattern keeps running after the keys are released (last note-on at "
                + juce::String (lastOn) + ")");
     check (noStuckNotes (events), "no stuck notes with latch on");
+
+    // Stopping the transport ends a latched chord, whether the host's note-offs came
+    // before the stop (block 30, stop at 60) or arrive in the very block it stops (40).
+    struct StopCase { const char* name; int releaseAt; int stopAt; };
+
+    for (const auto& c : { StopCase { "keys up before the stop", 30, 60 },
+                           StopCase { "keys up in the stopping block", 40, 40 } })
+    {
+        SimpleArpAudioProcessor stopProc;
+        stopProc.setRateAndBufferSizeDetails (testSampleRate, blockSize);
+        stopProc.prepareToPlay (testSampleRate, blockSize);
+
+        TestPlayHead stopHead;
+        stopProc.setPlayHead (&stopHead);
+
+        setParam (stopProc.apvts, "rate", 6);
+        setParam (stopProc.apvts, "rows", SimpleArpAudioProcessor::rowsChordTones);
+        setParam (stopProc.apvts, "octaves", 1);
+        setParam (stopProc.apvts, "gate", 50.0f);
+        setParam (stopProc.apvts, "latch", 1.0f);
+
+        const auto stopped = run (stopProc, stopHead, { 60, 64, 67 }, 120, c.releaseAt, c.stopAt);
+
+        long long lastStoppedOn = -1;
+
+        for (const auto& e : stopped)
+            if (e.isOn)
+                lastStoppedOn = e.sample;
+
+        check (lastStoppedOn >= 0 && lastStoppedOn < (long long) c.stopAt * blockSize,
+               juce::String ("transport stop ends a latched chord, ") + c.name
+                   + " (last note-on at " + juce::String (lastStoppedOn) + ")");
+        check (allNotesClosed (stopped), juce::String ("nothing left sounding, ") + c.name);
+    }
+
+    // With no transport running at all, Latch still holds the chord for live playing.
+    {
+        SimpleArpAudioProcessor liveProc;
+        liveProc.setRateAndBufferSizeDetails (testSampleRate, blockSize);
+        liveProc.prepareToPlay (testSampleRate, blockSize);
+
+        TestPlayHead liveHead;
+        liveHead.playing = false;
+        liveProc.setPlayHead (&liveHead);
+
+        setParam (liveProc.apvts, "rate", 6);
+        setParam (liveProc.apvts, "rows", SimpleArpAudioProcessor::rowsChordTones);
+        setParam (liveProc.apvts, "octaves", 1);
+        setParam (liveProc.apvts, "gate", 50.0f);
+        setParam (liveProc.apvts, "latch", 1.0f);
+
+        const auto live = run (liveProc, liveHead, { 60, 64, 67 }, 100, 30);
+
+        long long lastLiveOn = -1;
+
+        for (const auto& e : live)
+            if (e.isOn)
+                lastLiveOn = e.sample;
+
+        check (lastLiveOn > 30LL * blockSize,
+               "latch keeps running with the transport stopped (last note-on at "
+                   + juce::String (lastLiveOn) + ")");
+    }
 }
 
 void testPatternGrid()

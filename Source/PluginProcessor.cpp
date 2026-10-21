@@ -540,6 +540,7 @@ void SimpleArpAudioProcessor::clearArpState()
     pendingStepNumber = -1;
     nextFreeRunStep = 0.0;
     wasPlaying = false;
+    releaseLatchWithKeys = false;
     cachedOctaves = -1;
     cachedRowMode = -1;
     cachedKey = -1;
@@ -575,6 +576,17 @@ void SimpleArpAudioProcessor::rebuildSequence()
     for (int row = 0; row < numPatternRows; ++row)
         displayRowPitch[(size_t) row].store (pitchForRow (row));
 
+}
+
+void SimpleArpAudioProcessor::keepOnlyKeysDown()
+{
+    patternNotes.erase (std::remove_if (patternNotes.begin(), patternNotes.end(),
+                                        [this] (const HeldNote& h)
+                                        {
+                                            return std::find (keysDown.begin(), keysDown.end(), h.note) == keysDown.end();
+                                        }),
+                        patternNotes.end());
+    rebuildSequence();
 }
 
 //==============================================================================
@@ -748,13 +760,16 @@ void SimpleArpAudioProcessor::handleIncomingMessage (const juce::MidiMessage& me
 
         keysDown.erase (std::remove (keysDown.begin(), keysDown.end(), note), keysDown.end());
 
-        if (latchParam->load() <= 0.5f)
+        if (latchParam->load() <= 0.5f || releaseLatchWithKeys)
         {
             patternNotes.erase (std::remove_if (patternNotes.begin(), patternNotes.end(),
                                                 [note] (const HeldNote& h) { return h.note == note; }),
                                 patternNotes.end());
             rebuildSequence();
         }
+
+        if (keysDown.empty())
+            releaseLatchWithKeys = false;
     }
     else if (message.isAllNotesOff() || message.isAllSoundOff())
     {
@@ -842,16 +857,7 @@ void SimpleArpAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     const bool latched = latchParam->load() > 0.5f;
 
     if (wasLatched && ! latched)
-    {
-        // Latch released: keep only what is actually still held down.
-        patternNotes.erase (std::remove_if (patternNotes.begin(), patternNotes.end(),
-                                            [this] (const HeldNote& h)
-                                            {
-                                                return std::find (keysDown.begin(), keysDown.end(), h.note) == keysDown.end();
-                                            }),
-                            patternNotes.end());
-        rebuildSequence();
-    }
+        keepOnlyKeysDown();   // Latch released
 
     wasLatched = latched;
 
@@ -875,6 +881,16 @@ void SimpleArpAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
         freeStepCounter = 0;
         lastSyncedStep = std::numeric_limits<long long>::min();
         nextFreeRunStep = 0.0;
+
+        // Stopping the transport stops a latched chord too; otherwise it free-runs
+        // forever, because the host's note-offs only release keys. Keys still down keep
+        // playing until they come up -- and the host's own note-offs for the part may
+        // land later in this very block, so they must be allowed to end the chord.
+        if (latched)
+        {
+            keepOnlyKeysDown();
+            releaseLatchWithKeys = ! keysDown.empty();
+        }
     }
 
     wasPlaying = playing;

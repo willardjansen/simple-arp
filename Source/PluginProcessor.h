@@ -173,6 +173,7 @@ private:
     int pitchForRow (int row) const;
     int scaleRootFor (int lowestNote) const;
     void rebuildSequence();
+    void keepOnlyKeysDown();
     void clearArpState();
     void clearPatternRows() noexcept;
 
@@ -221,6 +222,10 @@ private:
     double nextFreeRunStep = 0.0;
     bool wasPlaying = false;
     bool wasLatched = false;
+
+    // The transport stopped while latched with keys still down: those keys now release
+    // their notes as if Latch were off, so the chord ends when the hands come up.
+    bool releaseLatchWithKeys = false;
     int cachedOctaves = -1;
     int cachedRowMode = -1;
     int cachedKey = -1;

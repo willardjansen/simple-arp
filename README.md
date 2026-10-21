@@ -22,7 +22,7 @@ The grid is the only sequencer — 12 rows by up to 32 steps.
 | **Key** | Tonic for the scale row modes. `From chord` (default) uses the lowest held note; `C`–`B` pins it to a fixed key. |
 | **Octaves** | In `Chord tones`, how far up the grid reaches (chord size × Octaves rows). In scale modes, lifts the whole ladder. |
 | **Gate** | Note length as a percentage of one step. Scales with Rate. |
-| **Latch** | Keeps the pattern running after you lift your hands. |
+| **Latch** | Keeps the pattern running after you lift your hands. Stopping the host transport ends a latched chord. |
 | **Steps** | Pattern length, 1–32. The readout shows what that works out to (`16 × 1/16 = 1 bar`). |
 | **Fill** | Writes `Up` / `Down` / `Up-Down` / `Random` into the grid as a starting point. Fully editable afterwards. |
 | **Clear** | Wipes the grid and resets velocities to 100. |
